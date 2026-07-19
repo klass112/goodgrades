@@ -36,6 +36,12 @@ function parseArgs(argv) {
  * Parses the `https://<key>@<host>/<projectId>` DSN into the ingest URL and key.
  * Returns null for an unset or malformed DSN so a missing DSN degrades to
  * "check still runs, just does not report" rather than crashing the check.
+ *
+ * Targets the `/envelope/` endpoint, not the legacy `/store/` one: store is
+ * behind a WAF rule on this Sentry install that rejects non-browser clients
+ * (HTTP 403, Cloudflare error 1010) — and worse, it can answer 200 while
+ * dropping the event, so "reported" was a lie. Envelope is what current SDKs
+ * use and it is the path we verified end to end.
  */
 export function parseDsn(dsn) {
   if (!dsn) return null
@@ -43,13 +49,26 @@ export function parseDsn(dsn) {
     const url = new URL(dsn)
     const projectId = url.pathname.replace(/^\//, '')
     if (!url.username || !projectId) return null
+    const query = `?sentry_key=${url.username}&sentry_version=7&sentry_client=goodgrades-uptime%2F1.0`
     return {
       key: url.username,
-      storeUrl: `${url.protocol}//${url.host}/api/${projectId}/store/`,
+      projectId,
+      envelopeUrl: `${url.protocol}//${url.host}/api/${projectId}/envelope/${query}`,
     }
   } catch {
     return null
   }
+}
+
+/**
+ * Builds a Sentry envelope: newline-delimited JSON of header, item header, payload.
+ * Exported so the format stays under test — getting it subtly wrong is the kind
+ * of bug that only shows up as silence during an actual outage.
+ */
+export function buildEnvelope(event, dsn) {
+  const header = JSON.stringify({ event_id: event.event_id, sent_at: event.timestamp, dsn })
+  const itemHeader = JSON.stringify({ type: 'event' })
+  return `${header}\n${itemHeader}\n${JSON.stringify(event)}\n`
 }
 
 export function evaluate({ ok, status, body, durationMs, expectCommit, slowThresholdMs }) {
@@ -81,7 +100,10 @@ export function evaluate({ ok, status, body, durationMs, expectCommit, slowThres
 
 async function reportToSentry({ dsn, url, problems, durationMs, payload }) {
   const parsed = parseDsn(dsn)
-  if (!parsed) return false
+  if (!parsed) {
+    console.error('warning: no usable SENTRY_DSN, failure not reported')
+    return false
+  }
 
   const event = {
     event_id: crypto.randomUUID().replace(/-/g, ''),
@@ -104,17 +126,10 @@ async function reportToSentry({ dsn, url, problems, durationMs, payload }) {
     extra: { url, problems, durationMs, healthPayload: payload },
   }
 
-  const response = await fetch(parsed.storeUrl, {
+  const response = await fetch(parsed.envelopeUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Sentry-Auth': [
-        'Sentry sentry_version=7',
-        `sentry_key=${parsed.key}`,
-        'sentry_client=goodgrades-uptime/1.0',
-      ].join(', '),
-    },
-    body: JSON.stringify(event),
+    headers: { 'Content-Type': 'application/x-sentry-envelope' },
+    body: buildEnvelope(event, dsn),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
 
@@ -122,6 +137,16 @@ async function reportToSentry({ dsn, url, problems, durationMs, payload }) {
     console.error(`warning: could not report to Sentry (HTTP ${response.status})`)
     return false
   }
+  // Sentry echoes the accepted event id. No id means it took the request but
+  // did not ingest an event — treat that as a failure to report, not a success.
+  const body = await response.text()
+  if (!body.includes(event.event_id)) {
+    console.error(
+      `warning: Sentry accepted the request but returned no event id: ${body.slice(0, 200)}`,
+    )
+    return false
+  }
+  console.error(`sentry event id: ${event.event_id}`)
   return true
 }
 
@@ -175,7 +200,7 @@ async function main() {
     durationMs,
     payload: result.payload,
   })
-  console.error(reported ? 'reported to Sentry' : 'not reported (no usable SENTRY_DSN)')
+  console.error(reported ? 'reported to Sentry' : 'NOT reported to Sentry (see warning above)')
   return 1
 }
 

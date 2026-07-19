@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluate, parseDsn } from './uptime-check.mjs'
+import { buildEnvelope, evaluate, parseDsn } from './uptime-check.mjs'
 
 const base = {
   ok: true,
@@ -11,11 +11,15 @@ const base = {
 }
 
 describe('parseDsn', () => {
-  it('derives the store endpoint and key from a DSN', () => {
-    expect(parseDsn('https://deadbeef@sentry.example.com/16')).toEqual({
-      key: 'deadbeef',
-      storeUrl: 'https://sentry.example.com/api/16/store/',
-    })
+  it('derives the envelope endpoint and key from a DSN', () => {
+    const parsed = parseDsn('https://deadbeef@sentry.example.com/16')
+
+    expect(parsed).toMatchObject({ key: 'deadbeef', projectId: '16' })
+    // Must be /envelope/, not the legacy /store/: store is WAF-blocked here and
+    // can return 200 while silently dropping the event.
+    expect(parsed.envelopeUrl).toContain('https://sentry.example.com/api/16/envelope/')
+    expect(parsed.envelopeUrl).toContain('sentry_key=deadbeef')
+    expect(parsed.envelopeUrl).not.toContain('/store/')
   })
 
   it('returns null for unusable DSNs so a missing config degrades instead of crashing', () => {
@@ -24,6 +28,24 @@ describe('parseDsn', () => {
     expect(parseDsn('not a url')).toBeNull()
     expect(parseDsn('https://sentry.example.com/16')).toBeNull() // no key
     expect(parseDsn('https://deadbeef@sentry.example.com/')).toBeNull() // no project id
+  })
+})
+
+describe('buildEnvelope', () => {
+  const dsn = 'https://deadbeef@sentry.example.com/16'
+  const event = { event_id: 'abc123', timestamp: '2026-07-19T00:00:00Z', level: 'error' }
+
+  it('emits three newline-delimited JSON lines: header, item header, payload', () => {
+    const lines = buildEnvelope(event, dsn).trimEnd().split('\n')
+
+    expect(lines).toHaveLength(3)
+    expect(JSON.parse(lines[0])).toMatchObject({ event_id: 'abc123', dsn })
+    expect(JSON.parse(lines[1])).toEqual({ type: 'event' })
+    expect(JSON.parse(lines[2])).toMatchObject({ event_id: 'abc123', level: 'error' })
+  })
+
+  it('terminates with a newline — Sentry rejects an envelope without it', () => {
+    expect(buildEnvelope(event, dsn).endsWith('\n')).toBe(true)
   })
 })
 
