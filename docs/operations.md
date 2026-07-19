@@ -171,9 +171,17 @@ threshold against.
 
 Being explicit so these are decisions rather than oversights:
 
-- **The API is instrumented but not deployed.** Server-side logging and error
-  reporting are wired and unit-tested, but have never run in production. Blocked
-  on Cloudflare credentials (KLA-9).
+- **The API is instrumented but not deployed.** Structured logging, request
+  correlation, and the sanitized-500 path are tested and verified against a
+  locally running server, but have never run in production. Blocked on
+  Cloudflare credentials (KLA-9).
+- **The API has no *Sentry* reporting on its real runtime.** `@sentry/node` is a
+  Node SDK and is loaded only by `server.ts` (local dev). The deployed
+  entrypoint is `worker.ts` on Cloudflare Workers, where `captureError` is
+  currently the no-op default — so an API 500 in production would be logged to
+  Cloudflare but would **not** raise a Sentry issue. Closing this needs
+  `@sentry/cloudflare` wired into `worker.ts` through the existing injectable
+  `captureError` option. Tracked as a follow-up; it is deliberately not faked.
 - **Uptime resolution is ~15 min and best-effort**, not a pager.
 - **Sentry is a shared, borrowed instance** (`maxiongame`) rather than a Klass
   Corp tenant. See `docs/decisions/0003-observability.md` — this needs a CEO call.

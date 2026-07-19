@@ -133,5 +133,14 @@ before launch.
   but the API is not deployed (KLA-9). Server-side logging and error reporting
   should be re-verified against the real deploy the moment Cloudflare credentials
   land. Until then, treat it as "written and tested", not "known working".
-- `@sentry/node` does not run on Cloudflare Workers; the API's Sentry integration
-  has to be runtime-appropriate for whichever entrypoint actually ships.
+- `@sentry/node` does not run on Cloudflare Workers. `app.ts` therefore imports
+  only a *type* from the Sentry module (erased at compile time under
+  `verbatimModuleSyntax`), and takes `captureError` as an injectable option.
+  `server.ts` — the Node entrypoint — is the only place that wires the real
+  Sentry-backed implementation. The consequence to be honest about: the deployed
+  Workers entrypoint currently gets the **no-op** `captureError`, so API errors
+  in production would be logged but would not raise a Sentry issue. The seam to
+  fix it exists (`AppOptions.captureError`); wiring `@sentry/cloudflare` into
+  `worker.ts` is the follow-up. This is called out rather than papered over
+  because a monitoring gap you know about is a task, and one you don't is an
+  outage.
