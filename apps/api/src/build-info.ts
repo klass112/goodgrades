@@ -8,7 +8,14 @@ export interface BuildInfo {
   env: string
 }
 
-export function readBuildInfo(env: NodeJS.ProcessEnv = process.env): BuildInfo {
+/**
+ * The subset of an environment we read. Deliberately not `NodeJS.ProcessEnv`:
+ * on Workers the build vars arrive as a plain bindings object on the fetch
+ * handler's `env`, not on `process.env`.
+ */
+export type BuildEnv = Record<string, string | undefined>
+
+export function readBuildInfo(env: BuildEnv = process.env): BuildInfo {
   return {
     commit: env.GIT_COMMIT ?? 'dev',
     builtAt: env.BUILD_TIME ?? 'unknown',

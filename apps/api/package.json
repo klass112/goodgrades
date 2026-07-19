@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:worker": "wrangler dev",
     "start": "tsx src/server.ts",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
@@ -17,6 +19,7 @@
     "@types/node": "22.10.2",
     "tsx": "4.19.2",
     "typescript": "5.6.3",
-    "vitest": "2.1.8"
+    "vitest": "2.1.8",
+    "wrangler": "4.112.0"
   }
 }

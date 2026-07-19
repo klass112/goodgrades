@@ -1,0 +1,23 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "goodgrades-api"
+main = "src/worker.ts"
+compatibility_date = "2025-07-01"
+
+# Gives the Worker the Node built-ins Hono middleware tends to reach for, and
+# makes the Node and Workers runtimes behave the same where it matters.
+compatibility_flags = ["nodejs_compat"]
+
+# Observability is free on the Workers free plan and is the only way to see a
+# 500 in production before a user reports it.
+[observability]
+enabled = true
+
+# Build metadata. These are deliberately placeholders: the deploy overrides all
+# three with the real commit via `wrangler deploy --var`, and the smoke test in
+# .github/workflows/deploy-api.yml fails the deploy unless /health echoes back
+# the exact SHA that triggered it. A hand-run `wrangler deploy` reports 'dev',
+# which is the honest answer for a build that CI did not stamp.
+[vars]
+GIT_COMMIT = "dev"
+BUILD_TIME = "unknown"
+APP_ENV = "development"

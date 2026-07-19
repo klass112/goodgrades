@@ -1,7 +1,7 @@
 # 0002 — Hosting the deploy path
 
-- **Status:** accepted for the web app; **API hosting is open and escalated to the CEO**
-- **Date:** 2026-07-19
+- **Status:** accepted — web on GitHub Pages, **API on Cloudflare Workers**
+- **Date:** 2026-07-19 (API hosting resolved on the stated default, KLA-9)
 - **Decider:** Founding engineer (hosting-provider authority granted in KLA-3, limited to free tier)
 
 ## Context
@@ -27,13 +27,27 @@ The deploy job then polls the live URL and fails unless `health.json` reports th
 exact SHA that triggered it. A passing deploy is therefore proof that this commit
 is what the public URL is serving — not just proof that a job exited 0.
 
-**The API is built and tested but not yet hosted.** `apps/api` has a real `/health`
-endpoint with tests, and runs locally via `pnpm --filter @goodgrades/api dev`. It
-is not deployed because doing so requires picking a vendor — see below.
+**Deploy the API to Cloudflare Workers on the free tier.** KLA-9 escalated this to
+the CEO with Cloudflare as the recommendation and the stated default; no objection
+was raised, so the default stands. `apps/api/wrangler.toml` and
+`.github/workflows/deploy-api.yml` implement it.
 
-## API hosting: recommendation for the CEO
+`src/worker.ts` is the Workers entry point. It shares `createApp` with the Node
+server, so route code is runtime-agnostic and the only difference is where build
+metadata comes from: `process.env` on Node, deploy-injected `vars` on Workers.
+That is why `readBuildInfo` takes a plain `BuildEnv` record rather than
+`NodeJS.ProcessEnv`.
 
-Recommended: **Cloudflare Workers free tier.**
+**Remaining to go live: the Cloudflare account itself.** This environment holds a
+GitHub token and nothing else, so the account creation and token minting are a CEO
+action. See "Enabling the deploy" below. Until the secrets exist the deploy job
+reports a clear skip rather than a red X — a credential we are knowingly waiting on
+is not a broken build — and becomes a real deploy the moment they are added, with
+no code change.
+
+## API hosting: why Cloudflare
+
+Chosen: **Cloudflare Workers free tier.**
 
 - 100k requests/day free, no credit card required to start.
 - Hono was chosen partly because it runs on Workers natively (`0001-stack.md`), so
@@ -56,11 +70,30 @@ Alternatives considered:
 - **Supabase free tier.** Strong Postgres + Auth story; worth revisiting when we
   design the data model, but it does not host our API process.
 
-**Default if I hear nothing:** I will stand up Cloudflare Workers on the free tier,
-because it needs no card and no commitment, and it is reversible in under a day.
 Firebase remains open and should be decided alongside the data model and the cost
 analysis the parent goal calls for — that is a bigger decision than "where does the
-API run."
+API run." Nothing here forecloses it: the Workers adapter is 39 lines and
+`createApp` is untouched, so moving to Cloud Functions is a new entry point and a
+new workflow, not a rewrite.
+
+## Enabling the deploy
+
+One-time CEO action, ~5 minutes, no credit card:
+
+1. Create a free Cloudflare account (the Workers free plan does not ask for a card).
+2. Workers &amp; Pages → API tokens → create a token with the **Edit Cloudflare Workers**
+   template. Copy the token and the Account ID.
+3. In the GitHub repo → Settings → Secrets and variables → Actions, add secrets
+   `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+4. Re-run the **Deploy API** workflow. It prints the deployed URL
+   (`https://goodgrades-api.<subdomain>.workers.dev`).
+5. Add that URL as the repository **variable** `API_URL` so the smoke test can
+   verify it. The smoke test fails the deploy if `/health` does not echo the exact
+   commit SHA that triggered it — the same contract the web deploy holds itself to.
+
+Steps 4 and 5 are ordered that way because the URL is not known until the first
+deploy. The first run deploys and then fails the smoke test with an explicit
+"set `API_URL`" message; the second run is green.
 
 ## Consequences
 

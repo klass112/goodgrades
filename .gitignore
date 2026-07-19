@@ -15,5 +15,8 @@ npm-debug.log*
 .omc/
 .claude/
 
+# wrangler's local state and build cache
+apps/api/.wrangler/
+
 # generated at build time by scripts/gen-health.mjs
 apps/web/public/health.json
