@@ -1,0 +1,83 @@
+name: Deploy web
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: only what actions/deploy-pages needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once, but let a newer commit finish rather than
+# cancelling it mid-publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      - name: Build web
+        working-directory: apps/web
+        env:
+          BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          GIT_COMMIT: ${{ github.sha }}
+          APP_ENV: production
+        run: |
+          export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          pnpm build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment
+
+      # Proves the URL serves THIS commit, not a stale cached build.
+      - name: Smoke test deployed health endpoint
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          url="${PAGE_URL%/}/health.json"
+          for attempt in $(seq 1 10); do
+            body="$(curl -fsS --max-time 15 "$url" || true)"
+            got="$(printf '%s' "$body" | jq -r '.commit // empty')"
+            if [ "$got" = "$EXPECTED_SHA" ]; then
+              echo "OK: $url reports commit $got"
+              exit 0
+            fi
+            echo "attempt $attempt: got '${got:-<none>}', want '$EXPECTED_SHA'; retrying..."
+            sleep 15
+          done
+          echo "FAILED: $url never reported commit $EXPECTED_SHA"
+          exit 1
