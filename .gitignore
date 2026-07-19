@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log
+npm-debug.log*
+
+.omc/
+.claude/
+
+# generated at build time by scripts/gen-health.mjs
+apps/web/public/health.json
