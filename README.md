@@ -73,3 +73,19 @@ SHA being deployed, so a green deploy means that commit is live.
 
 - [0001 — Stack](docs/decisions/0001-stack.md)
 - [0002 — Hosting](docs/decisions/0002-hosting.md)
+- [0003 — Tenancy and the account model](docs/decisions/0003-tenancy.md)
+
+## Tenant isolation
+
+Read `docs/decisions/0003-tenancy.md` before writing a query that touches tenant
+data. The short version: isolation is enforced by Postgres row-level security,
+not by `WHERE org_id = ?` in handlers.
+
+Every read or write of tenant data goes through `withTenant(db, orgId, ...)`
+(`apps/api/src/tenancy/with-tenant.ts`). Inside it, queries run as a role the RLS
+policies apply to, so a missing filter returns *nothing* rather than another
+tenant's rows. `apps/api/src/auth/routes.ts` has a worked example to copy.
+
+The exception is `withoutTenantIsolation`, used only by signup, login, and
+password reset — the operations that must run before a tenant is known. If it
+appears anywhere outside `apps/api/src/auth/`, that is a bug.
