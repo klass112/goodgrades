@@ -10,12 +10,15 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "vitest run --config scripts/vitest.config.ts && pnpm -r test",
+    "status": "node scripts/status.mjs",
+    "uptime": "node scripts/uptime-check.mjs",
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel dev"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
-    "typescript": "5.6.3"
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
   }
 }

@@ -43,9 +43,33 @@ jobs:
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
           GIT_COMMIT: ${{ github.sha }}
           APP_ENV: production
+          # Public write-only ingest key, so a repo variable rather than a secret.
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          VITE_APP_ENV: production
         run: |
+          set -euo pipefail
+          # Fail loudly rather than shipping a build that silently reports nothing.
+          # Sentry disables itself on an empty DSN, which would look identical to
+          # "no errors happening" — the exact failure this issue exists to prevent.
+          if [ -z "${VITE_SENTRY_DSN:-}" ]; then
+            echo "VITE_SENTRY_DSN is empty; refusing to deploy an uninstrumented build." >&2
+            echo "Set it with: gh variable set VITE_SENTRY_DSN --body '<dsn>'" >&2
+            exit 1
+          fi
           export BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           pnpm build
+
+      # A bundle without its .map is a minified stack trace nobody can read.
+      - name: Verify source maps were emitted
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          count="$(find dist/assets -name '*.js.map' | wc -l | tr -d ' ')"
+          if [ "$count" -eq 0 ]; then
+            echo "No source maps in dist/assets; Sentry stack traces would be unreadable." >&2
+            exit 1
+          fi
+          echo "OK: $count source map(s) emitted"
 
       - uses: actions/upload-pages-artifact@v3
         with:

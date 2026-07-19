@@ -14,6 +14,15 @@ export default defineConfig({
     __GIT_COMMIT__: JSON.stringify(commit),
     __BUILD_TIME__: JSON.stringify(builtAt),
   },
+  build: {
+    // Published alongside the bundle so Sentry can fetch them over HTTP and turn
+    // minified frames into real file/line numbers. We have no Sentry auth token
+    // in this environment, so upload-at-build-time is not available and public
+    // fetch is the only symbolication route we have. The repo is already public
+    // (docs/decisions/0002-hosting.md), so this leaks nothing that isn't on
+    // GitHub already. Revisit if the site ever ships non-public logic.
+    sourcemap: true,
+  },
   test: {
     environment: 'jsdom',
     globals: true,

@@ -1,0 +1,41 @@
+name: Uptime
+
+# Every 15 minutes. GitHub's shortest reliable cron granularity is 5 minutes and
+# scheduled runs are best-effort (they can be delayed under load), so this is a
+# "we will know within the hour" monitor, not a sub-minute pager. That is the
+# right trade while we have no users and no on-call — see
+# docs/decisions/0003-observability.md for when to replace it.
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Health URL to check (defaults to the deployed web app)'
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check deployed health endpoint
+        env:
+          # Failures are reported into the same Sentry project as app errors, so
+          # one alert rule covers both "it threw" and "it is gone".
+          SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
+          HEALTH_URL: ${{ github.event.inputs.url || 'https://klass112.github.io/goodgrades/health.json' }}
+          APP_ENV: production
+        run: node scripts/uptime-check.mjs
